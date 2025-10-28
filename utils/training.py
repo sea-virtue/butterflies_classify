@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import torch
+from torch import nn
+from torch.optim import Optimizer
+
+
+def train_model(
+    model: nn.Module,
+    dataloaders: Dict[str, torch.utils.data.DataLoader],
+    criterion: nn.Module,
+    optimizer: Optimizer,
+    device: torch.device,
+    epochs: int,
+    save_path: Optional[Path] = None,
+) -> Dict[str, List[float]]:
+    """Train the model and return epoch-wise metrics."""
+    history: Dict[str, List[float]] = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
+    best_weights = deepcopy(model.state_dict())
+    best_val_acc = 0.0
+
+    for epoch in range(epochs):
+        print(f"Epoch {epoch + 1}/{epochs}")
+        print("-" * 10)
+
+        for phase in ("train", "val"):
+            if phase not in dataloaders:
+                continue
+            is_training = phase == "train"
+            model.train(mode=is_training)
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+
+                optimizer.zero_grad(set_to_none=True)
+
+                with torch.set_grad_enabled(is_training):
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs, dim=1)
+                    loss = criterion(outputs, labels)
+
+                    if is_training:
+                        loss.backward()
+                        optimizer.step()
+
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels)
+
+            dataset_size = len(dataloaders[phase].dataset)
+            epoch_loss = running_loss / dataset_size
+            epoch_acc = running_corrects.double() / dataset_size
+
+            print(f"{phase.capitalize()} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}")
+
+            history[f"{phase}_loss"].append(epoch_loss)
+            history[f"{phase}_acc"].append(epoch_acc.item())
+
+            if phase == "val" and epoch_acc.item() >= best_val_acc:
+                best_val_acc = epoch_acc.item()
+                best_weights = deepcopy(model.state_dict())
+
+    if "val" not in dataloaders:
+        best_weights = deepcopy(model.state_dict())
+
+    model.load_state_dict(best_weights)
+    history["best_val_acc"] = [best_val_acc]
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(best_weights, save_path)
+        print(f"[INFO] Saved best model weights to {save_path}")
+
+    return history
