@@ -3,6 +3,8 @@ import shutil
 from pathlib import Path
 from typing import Iterable, List
 
+from PIL import Image, ImageEnhance, ImageOps
+
 from config import CONFIG
 from utils import set_global_seed
 
@@ -14,10 +16,16 @@ def _project_root() -> Path:
 
 
 def _iter_class_dirs(base_dir: Path) -> Iterable[Path]:
+    skip_names = {
+        CONFIG.dataset.train_dir.name,
+        CONFIG.dataset.test_dir.name,
+        CONFIG.dataset.processed_dir.name,
+        "__pycache__",
+    }
     for item in base_dir.iterdir():
         if not item.is_dir():
             continue
-        if item.name in {CONFIG.dataset.train_dir.name, CONFIG.dataset.test_dir.name}:
+        if item.name in skip_names:
             continue
         yield item
 
@@ -32,11 +40,53 @@ def _clear_directory(directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
 
 
-def _copy_files(files: Iterable[Path], destination_root: Path, class_name: str) -> None:
+def _save_augmented_versions(src: Path, destination: Path, rng: random.Random) -> int:
+    augmentations = max(0, CONFIG.dataset.augmentations_per_image)
+    if augmentations == 0:
+        return 0
+
+    with Image.open(src) as image:
+        base_image = image.convert("RGB")
+        width, height = base_image.size
+
+        created = 0
+        for _ in range(augmentations):
+            augmented = base_image.copy()
+
+            angle = rng.uniform(-20.0, 20.0)
+            augmented = augmented.rotate(angle, resample=Image.BILINEAR, expand=True)
+            augmented = ImageOps.fit(augmented, (width, height), method=Image.BILINEAR)
+
+            if rng.random() < 0.5:
+                augmented = augmented.transpose(Image.FLIP_LEFT_RIGHT)
+
+            brightness = rng.uniform(0.85, 1.15)
+            contrast = rng.uniform(0.85, 1.15)
+            saturation = rng.uniform(0.85, 1.15)
+
+            augmented = ImageEnhance.Brightness(augmented).enhance(brightness)
+            augmented = ImageEnhance.Contrast(augmented).enhance(contrast)
+            augmented = ImageEnhance.Color(augmented).enhance(saturation)
+
+            suffix = rng.randint(0, 999_999)
+            aug_name = f"{src.stem}_aug{suffix}.jpg"
+            augmented.save(destination / aug_name, format="JPEG", quality=95)
+            created += 1
+
+    return created
+
+
+def _copy_files(files: Iterable[Path], destination_root: Path, class_name: str, *, augment: bool, rng: random.Random) -> int:
     class_dest = destination_root / class_name
     class_dest.mkdir(parents=True, exist_ok=True)
+
+    augmented_total = 0
     for src in files:
         shutil.copy2(src, class_dest / src.name)
+        if augment:
+            augmented_total += _save_augmented_versions(src, class_dest, rng)
+
+    return augmented_total
 
 
 def main() -> None:
@@ -45,15 +95,19 @@ def main() -> None:
     project_root = _project_root()
 
     base_dir = CONFIG.dataset.base_dir
+    processed_root = CONFIG.dataset.processed_dir
     train_root = CONFIG.dataset.train_dir
     test_root = CONFIG.dataset.test_dir
 
     base_dir = base_dir if base_dir.is_absolute() else project_root / base_dir
+    processed_root = processed_root if processed_root.is_absolute() else project_root / processed_root
     train_root = train_root if train_root.is_absolute() else project_root / train_root
     test_root = test_root if test_root.is_absolute() else project_root / test_root
 
     if not base_dir.exists():
         raise FileNotFoundError(f"Dataset directory not found: {base_dir}")
+
+    processed_root.mkdir(parents=True, exist_ok=True)
 
     _clear_directory(train_root)
     _clear_directory(test_root)
@@ -78,11 +132,13 @@ def main() -> None:
         test_files = shuffled[:test_count]
         train_files = shuffled[test_count:]
 
-        _copy_files(train_files, train_root, class_dir.name)
-        _copy_files(test_files, test_root, class_dir.name)
+        augmented_created = _copy_files(train_files, train_root, class_dir.name, augment=True, rng=rng)
+        _copy_files(test_files, test_root, class_dir.name, augment=False, rng=rng)
 
+        total_train = len(train_files) + augmented_created
         print(
-            f"[INFO] Class '{class_dir.name}': {len(train_files)} training and {len(test_files)} testing images prepared."
+            f"[INFO] Class '{class_dir.name}': {len(train_files)} base training images, "
+            f"{augmented_created} augmented, {len(test_files)} testing images. Total train: {total_train}."
         )
 
     print(f"[INFO] Train images stored in: {train_root}")

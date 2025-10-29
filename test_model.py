@@ -25,7 +25,11 @@ def main() -> None:
             f"Checkpoint not found: {checkpoint_path}. Run main.py to train and save the model first."
         )
 
-    state_dict = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    if isinstance(checkpoint, dict) and "model" in checkpoint:
+        state_dict = checkpoint.get("best_model") or checkpoint["model"]
+    else:
+        state_dict = checkpoint
     model.load_state_dict(state_dict)
 
     evaluation = evaluate_model(
