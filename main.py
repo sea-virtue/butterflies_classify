@@ -75,12 +75,25 @@ def main() -> None:
         if "model" in checkpoint and "optimizer" in checkpoint:
             model.load_state_dict(checkpoint["model"])
             optimizer.load_state_dict(checkpoint["optimizer"])
+            for group in optimizer.param_groups:
+                group["lr"] = CONFIG.training.learning_rate
             start_epoch = checkpoint.get("epoch", -1) + 1
             history_state = checkpoint.get("history")
             best_val_acc = checkpoint.get("best_val_acc", 0.0)
             best_weights = checkpoint.get("best_model")
-            if scheduler is not None and "scheduler" in checkpoint:
-                scheduler.load_state_dict(checkpoint["scheduler"])
+            checkpoint_scheduler_name = checkpoint.get("scheduler_name")
+            if (
+                scheduler is not None
+                and "scheduler" in checkpoint
+                and checkpoint_scheduler_name == scheduler_name
+            ):
+                try:
+                    scheduler.load_state_dict(checkpoint["scheduler"])
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[WARN] 无法恢复调度器状态，将重新开始调度: {exc}")
+            else:
+                if "scheduler" in checkpoint:
+                    print("[INFO] 调度器类型已更改，跳过旧调度器状态。")
             print(f"[INFO] 从 checkpoint 恢复，起始 epoch: {start_epoch}")
         else:
             print("[WARN] 检测到旧格式权重文件，将重新开始训练并覆盖。")

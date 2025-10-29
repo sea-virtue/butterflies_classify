@@ -119,6 +119,7 @@ def train_model(
                 "best_val_acc": current_best_acc,
                 "best_model": best_weights,
                 "history": history,
+                "scheduler_name": scheduler_name,
             }
             if scheduler is not None:
                 checkpoint["scheduler"] = scheduler.state_dict()

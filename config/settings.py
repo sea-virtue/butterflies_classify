@@ -19,8 +19,8 @@ class DatasetConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
-    epochs: int = 30
-    learning_rate: float = 0.001
+    epochs: int = 100
+    learning_rate: float = 5e-4
     num_classes: int = 50
     checkpoint_name: str = "custom_cnn_best.pt"
     history_plot_name: str = "pytorch_cnn_training_history.png"
@@ -28,13 +28,13 @@ class TrainingConfig:
 
 @dataclass(frozen=True)
 class SchedulerConfig:
-    name: str = "cosine"  # options: "none", "cosine", "step", "plateau"
+    name: str = "plateau"  # options: "none", "cosine", "step", "plateau"
     step_size: int = 10
     gamma: float = 0.1
     t_max: Optional[int] = None
     eta_min: float = 1e-5
     factor: float = 0.5
-    patience: int = 5
+    patience: int = 4
     min_lr: float = 1e-6
 
 
