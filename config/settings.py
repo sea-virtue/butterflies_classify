@@ -19,7 +19,7 @@ class DatasetConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
-    epochs: int = 100
+    epochs: int = 130
     learning_rate: float = 5e-4
     num_classes: int = 50
     checkpoint_name: str = "custom_cnn_best.pt"
